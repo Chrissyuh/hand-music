@@ -73,9 +73,9 @@ MIDI_PROGRAM = 89  # GM Pad 2 (warm) (0..127)
 
 # Visual overlays
 DRAW_SKELETON = True
-SHOW_HAND_BOX = False
+SHOW_HAND_BOX = True        # ✅ back on (orange box)
 SHOW_ZONE_GUIDES = True
-SHOW_PALM_POINT = False
+SHOW_PALM_POINT = True      # ✅ back on (pink cursor dot)
 
 # Window
 WIN_NAME = "Hand Music (MIDI)"
@@ -187,7 +187,8 @@ def draw_hand_box(frame_bgr: np.ndarray, w: int, h: int, hand_landmarks) -> None
     y1 = int(np.clip(min_y, 0.0, 1.0) * h)
     x2 = int(np.clip(max_x, 0.0, 1.0) * w)
     y2 = int(np.clip(max_y, 0.0, 1.0) * h)
-    cv2.rectangle(frame_bgr, (x1, y1), (x2, y2), (0, 200, 255), 2)
+    # Orange box (BGR)
+    cv2.rectangle(frame_bgr, (x1, y1), (x2, y2), (0, 165, 255), 2)
 
 def draw_guides(frame_bgr: np.ndarray, w: int, h: int, y_top: float, y_bottom: float, num_zones: int) -> None:
     if y_bottom < y_top:
@@ -278,7 +279,6 @@ def draw_bar(
                 cv2.FONT_HERSHEY_SIMPLEX, label_scale, (255, 255, 255), 1, cv2.LINE_AA)
 
 def draw_rotated_text(img: np.ndarray, text: str, center: Tuple[int, int], angle_deg: float, scale: float = 0.45) -> None:
-    # Text onto patch -> rotate -> overlay
     font = cv2.FONT_HERSHEY_SIMPLEX
     thickness = 1
     (tw, th), baseline = cv2.getTextSize(text, font, scale, thickness)
@@ -392,7 +392,6 @@ def main() -> None:
     if not cap.isOpened():
         raise RuntimeError("Could not open webcam. Try a different CAMERA_INDEX.")
 
-    # Try to reduce internal buffering / raise FPS.
     try:
         cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
     except Exception:
@@ -473,7 +472,6 @@ def main() -> None:
             now_sec = time.time()
             now_ms = int(now_sec * 1000)
 
-            # FPS estimate
             dt = max(1e-6, now_sec - last_loop_t)
             last_loop_t = now_sec
             inst_fps = 1.0 / dt
@@ -481,7 +479,7 @@ def main() -> None:
 
             h, w = frame_bgr.shape[:2]
 
-            # Process scheduled note-offs (slur overlap)
+            # scheduled note-offs (slur overlap)
             if pending_off:
                 still_pending = []
                 for due_ms, n in pending_off:
@@ -493,7 +491,6 @@ def main() -> None:
                         still_pending.append((due_ms, n))
                 pending_off = still_pending
 
-            # Inference
             infer_bgr = maybe_downscale_for_inference(frame_bgr)
             infer_rgb = cv2.cvtColor(infer_bgr, cv2.COLOR_BGR2RGB)
             mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=infer_rgb)
@@ -529,6 +526,13 @@ def main() -> None:
                 ema_palm = ps if ema_palm is None else (EMA_ALPHA_PALM * ps + (1.0 - EMA_ALPHA_PALM) * ema_palm)
                 ema_spread = spread_norm if ema_spread is None else (EMA_ALPHA_SPREAD * spread_norm + (1.0 - EMA_ALPHA_SPREAD) * ema_spread)
                 ema_fist = fistness if ema_fist is None else (EMA_ALPHA_FIST * fistness + (1.0 - EMA_ALPHA_FIST) * ema_fist)
+
+                # ✅ Pink cursor dot (uses the *smoothed* Y so it matches your zone mapping feel)
+                if SHOW_PALM_POINT:
+                    px = int(np.clip(cx, 0.0, 1.0) * w)
+                    py = int(np.clip(float(ema_y), 0.0, 1.0) * h)
+                    cv2.circle(frame_bgr, (px, py), 7, (255, 0, 255), -1, cv2.LINE_AA)
+                    cv2.circle(frame_bgr, (px, py), 9, (255, 255, 255), 1, cv2.LINE_AA)
 
                 # Spread calibration bootstrap + gentle auto-widening
                 if spread_min is None or spread_max is None:
